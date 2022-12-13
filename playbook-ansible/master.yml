@@ -1,0 +1,249 @@
+#ansible-galaxy collection install kubernetes.core
+---
+- hosts: all
+  become: true
+  vars:
+   - helm_version: '3.10.2'
+   - helm_architecture: 'amd64'
+   - helm_mirror: 'https://get.helm.sh'
+   - helm_install_dir: '/usr/local/share/helm'
+   - helm_download_dir: "{{ x_ansible_download_dir | default(ansible_env.HOME + '/.ansible/tmp/downloads') }}"
+   - helm_os :  "linux"
+   - helm_redis_filename : "helm-v{{ helm_version }}-{{ helm_os }}-{{ helm_architecture }}.tar.gz"
+   - helm_chart_url: "https://helm.cilium.io/"
+  tasks:
+  - name: Install necessary packages
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+     - packages: "apt-transport-https,ca-certificates,curl,software-properties-common,gnupg2,net-tools"
+
+  - name: Install containerd
+    apt: 
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - containerd
+
+  - name: Remove swapfile from /etc/fstab
+    mount:
+      name: "{{ item }}"
+      fstype: swap
+      state: absent
+    with_items:
+      - swap
+      - none
+
+  - name: Disable swap
+    command: swapoff -a
+    when: ansible_swaptotal_mb > 0
+
+  - name: Add an apt signing key for Kubernetes
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+
+  - name: Adding apt repository for Kubernetes
+    apt_repository:
+      repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+      filename: kubernetes.list
+
+  - name: Install Kubernetes binaries
+    apt: 
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+        - kubelet=1.25.0-00
+        - kubeadm=1.25.0-00
+        - kubectl=1.25.0-00
+
+  - name: Configure containerd
+    blockinfile:
+      create: true
+      path: /etc/modules-load.d/containerd.conf
+      block: |
+        overlay
+        br_netfilter
+
+  - name: Enable kernel modules
+    shell: |
+      modprobe overlay
+      modprobe br_netfilter
+
+  - name: Configure IP forwarding and iptables
+    blockinfile:
+      create: true
+      path: /etc/sysctl.conf
+      block: |
+        net.bridge.bridge-nf-call-iptables = 1
+        net.ipv4.ip_forward = 1
+
+  - name: Persist changes
+    command: sysctl -p
+
+  - name: Get IP eth1 addr
+    shell: ifconfig eth1 | grep 'inet' | cut -d{{':'}} -f2 | awk '{ print $2 }'
+    register: output
+
+  - name: Configure kubelet
+    lineinfile:
+      path: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+      line: Environment="KUBELET_EXTRA_ARGS=--node-ip={{ output.stdout }}"
+
+  - name: Initialize the Kubernetes cluster using kubeadm
+    command: kubeadm init --apiserver-advertise-address="192.168.50.10" --apiserver-cert-extra-sans="192.168.50.10" --pod-network-cidr=172.16.0.0/16
+
+  - name: Create kube directory
+    file:
+      path: /home/vagrant/.kube
+      state: directory
+
+  - name: Setup kubeconfig for vagrant user
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: /home/vagrant/.kube/config
+      remote_src: yes
+      owner: vagrant
+      group: vagrant
+      mode: '0644'
+#install helm
+  - name: create download directory
+    file:
+      state: directory
+      mode: 'u=rwx,go=rx'
+      dest:  "{{ helm_download_dir }}"
+
+  - name: download sha256sum
+    get_url:
+      url: '{{ helm_mirror }}/{{ helm_redis_filename }}.sha256'
+      dest: '{{ helm_download_dir }}/{{ helm_redis_filename }}.sha256'
+      force: no
+      use_proxy: yes
+      validate_certs: yes
+      mode: 'u=rw,go=r'
+
+  - name: read sha256sum
+    slurp:
+      src: '{{ helm_download_dir }}/{{ helm_redis_filename }}.sha256'
+    register: helm_sha256sum
+
+  - name: download Helm
+    get_url:
+      url: '{{ helm_mirror }}/{{ helm_redis_filename }}'
+      dest: '{{ helm_download_dir }}/{{ helm_redis_filename }}'
+      checksum: 'sha256:{{ helm_sha256sum.content | b64decode | trim }}'
+      force: no
+      use_proxy: yes
+      validate_certs: yes
+      mode: 'u=rw,go=r'
+
+  - name: check current version
+    command: >
+      {{ helm_install_dir }}/helm version --client --template {{ "'{{ if .Version }}{{ .Version }}{{ else }}{{ .Client.SemVer }}{{ end }}'" }}
+    register: helm_current_version
+    failed_when: no
+    changed_when: no
+
+  - name: current version
+    debug:
+      msg: '{{ helm_current_version.stdout }}'
+    when: helm_current_version.rc == 0
+
+  - name: remove existing installation
+    become: yes
+    file:
+      path: '{{ helm_install_dir }}'
+      state: absent
+    when:
+      - helm_current_version.rc == 0
+      - helm_current_version.stdout != ('v' + helm_version)
+
+  - name: create the Helm installation dir
+    become: yes
+    file:
+      state: directory
+      owner: root
+      group: root
+      mode: 'u=rwx,go=rx'
+      dest: '{{ helm_install_dir }}'
+
+  - name: install unarchive module dependencies (apt, yum, dnf, zypper)
+    become: yes
+    package:
+      name:
+        - tar
+        - unzip
+        - gzip
+      state: present
+    when: ansible_pkg_mgr in ('apt', 'yum', 'dnf', 'zypper')
+
+  - name: install Helm
+    become: yes
+    unarchive:
+      src: '{{ helm_download_dir }}/{{ helm_redis_filename }}'
+      remote_src: yes
+      dest: '{{ helm_install_dir }}'
+      extra_opts:
+        - '--strip-components=1'
+      owner: root
+      group: root
+      mode: 'o-w'
+      creates: '{{ helm_install_dir }}/helm'
+
+  - name: create helm link
+    become: yes
+    file:
+      src: '{{ helm_install_dir }}/helm'
+      dest: '/usr/local/bin/helm'
+      state: link
+      owner: root
+      group: root
+      mode: 'u=rwx,go=rx'
+      ##fin install helm
+      
+     ###install cni cilium
+  - name: Ajout repo helm
+    kubernetes.core.helm_repository:
+      name: cilium
+      repo_name: cilium
+      repo_url: "{{ helm_chart_url }}"
+      repo_state: present
+
+
+
+  - name: helm repo update
+    kubernetes.core.helm:
+      state: absent
+      binary_path: /usr/local/bin/helm
+      name: cilium 
+      namespace: default
+      update_repo_cache: true
+      kubeconfig: /etc/kubernetes/admin.conf
+
+
+
+   
+  - name: install cilium
+    kubernetes.core.helm:
+      name: pod-cilium
+      namespace: kube-system
+      chart_ref: cilium/cilium
+      chart_version: 1.12.4
+      kubeconfig: /etc/kubernetes/admin.conf
+
+
+      ##fin install cilium
+  - name: Generate join command
+    command: kubeadm token create --print-join-command
+    register: join_command
+
+  - name: Copy join command to local file
+    become: false
+    local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join-command"
