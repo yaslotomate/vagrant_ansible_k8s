@@ -15,3 +15,9 @@ vagrant scp <local_path> [nom_vm]:<remote_path>
 
 
 si vous voulez configuré dns ===>  sudo apt-get install ruby-full rubygems | vagrant plugin install vagrant-dns 
+
+
+
+vm.dns.tld: définissez le tld pour la machine virtuelle donnée. Aucun défaut.
+vm.dns.tlds: Définissez plusieurs tlds. Défaut:[tld]
+vm.dns.patterns: une liste de modèles de domaine à faire correspondre. Par défaut à[/^.*{host_name}.{tld}$/]
