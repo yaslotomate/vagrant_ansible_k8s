@@ -6,3 +6,8 @@ puis install plugin kubernetes.core
 
 vagrant up |
 vagrant ssh master 
+
+
+si vous souhaiter envoyer doc,fichier ==> vagrant plugin install vagrant-scp
+vagrant scp [nom_vm]:<remote_path>  <local_path>
+vagrant scp <local_path> [nom_vm]:<remote_path>
