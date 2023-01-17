@@ -18,6 +18,6 @@ si vous voulez configuré dns ===>  sudo apt-get install ruby-full rubygems | va
 
 
 
-vm.dns.tld: définissez le tld pour la machine virtuelle donnée. Aucun défaut.
-vm.dns.tlds: Définissez plusieurs tlds. Défaut:[tld]
+vm.dns.tld: définissez le tld pour la machine virtuelle donnée. Aucun défaut. |
+vm.dns.tlds: Définissez plusieurs tlds. Défaut:[tld] |
 vm.dns.patterns: une liste de modèles de domaine à faire correspondre. Par défaut à[/^.*{host_name}.{tld}$/]
