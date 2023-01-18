@@ -112,7 +112,7 @@
       remote_src: yes
       owner: vagrant
       group: vagrant
-      mode: '0644'
+      mode: '0600'
 #install helm
   - name: create download directory
     file:
