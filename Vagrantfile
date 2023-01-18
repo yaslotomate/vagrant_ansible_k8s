@@ -14,6 +14,7 @@ Vagrant.configure("2") do |config|
         master.vm.network "private_network", ip: "192.168.56.10"
         master.vm.hostname = "master"
         master.vm.provision "ansible" do |ansible|
+            ansible.verbose = "vvv"
             ansible.playbook = "playbook-ansible/master.yml"
         end
     end
@@ -24,6 +25,7 @@ Vagrant.configure("2") do |config|
             node.vm.network "private_network", ip: "192.168.56.#{i + 10}"
             node.vm.hostname = "node-#{i}"
             node.vm.provision "ansible" do |ansible|
+                ansible.verbose = "vvv"
                 ansible.playbook = "playbook-ansible/node.yml"
             end
         end
