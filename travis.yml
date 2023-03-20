@@ -1,0 +1,4 @@
+language: shell
+
+script:
+  - git archive --format=tar HEAD | gzip > archive.tar.gz
